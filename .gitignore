@@ -127,3 +127,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Mac
+.DS_Store
+
+# Data
+data
+
+# Others
+picoelectric_data.xlsx
+piecewise_average_datas.xlsx
+marker.xlsx
