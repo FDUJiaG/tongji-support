@@ -1,0 +1,198 @@
+import numpy as np
+import pandas as pd
+import os
+
+global heading, process, half
+
+def Ave(s):
+    ave = 0
+    l = len(s)
+    for x in s:
+        if(0*x != 0):
+            l = l - 1
+        else:
+            ave = ave + x
+    return (ave/l if l != 0 else 0)
+
+def Process(data):
+    result = pd.DataFrame(columns=heading+['count'])
+    
+    #得到session列
+    data['session'] = data['TT-AV Sync - 1B'].apply(lambda x:1 if x>0 else 0)
+    
+    #得到Δses列
+    for i in data.index[1:]:
+        data['Δses'].at[i] = data['session'].at[i] - data['session'].at[i-1]
+    data['Δses'].iloc[0] = data['session'].iloc[0]
+    
+    #计算每段的各个均值
+    i = data.index[0]
+    i_pre = data.index[4]
+    while(i < data.index[-1]):
+        count = 1
+        item = data.loc[i].copy()
+        item.fillna(0, inplace=True)
+        item['count'] = np.nan
+        i = i + 1
+        NaN_n = dict(list(zip(heading, np.zeros(len(heading)))))
+        while(i<=data.index[-1] and data['Δses'][i] != -1 and data['Δses'][i] != 1):
+            count = count + 1
+            for j in heading:
+                if(data[j].at[i]*0 == 0):
+                    item[j] = item[j] + data[j].at[i]
+                else:
+                    NaN_n[j] = NaN_n[j] + 1
+            i = i + 1
+        item['count'] = count
+        for j in heading:
+            if(count-NaN_n[j] == 0):
+                item[j] = 0
+            else:
+                item[j] = item[j] / (count-NaN_n[j])
+        
+        if(i_pre == data.index[4]):
+            for k in half[::2]:
+                item[k] = float(Ave(data[k].loc[i_pre:i-1]))
+            for k in half[1::2]:
+                item[k] = float(Ave(data[k].loc[i_pre+1:i-1]))    
+        else:
+            for k in half:
+                item[k] = float(Ave(data[k].loc[i_pre:i-1]))
+        i_pre = i
+        
+        
+        result = result.append(item, ignore_index=True).copy()
+        
+        
+    return result
+
+def Process_half(data):
+    for i in range(4, len(data.index)-3):
+        data['D:frown (1/2s avg)'].iloc[i] = float(Ave(data['D: EMG'].iloc[i-4:i+5]))
+        data['E: SC (1/2s avg)'].iloc[i] =  float(Ave(data['E: Skin Cond'].iloc[i-4:i+5]))
+        data['H:Smile (1/2s avg)'].iloc[i] =  float(Ave(data['MyoScan-Pro 400 - 1H'].iloc[i-4:i+5]))
+        data['A:HR (1/2s avg)'].iloc[i] =  float(Ave(data['A: EKG HR (Smoothed)'].iloc[i-4:i+5]))
+    for i in range(-1,-5,-1):
+        data['D:frown (1/2s avg)'].iloc[i] = float(Ave(data['D: EMG'].iloc[i-4:]))
+        data['E: SC (1/2s avg)'].iloc[i] =  float(Ave(data['E: Skin Cond'].iloc[i-4:]))
+        data['H:Smile (1/2s avg)'].iloc[i] =  float(Ave(data['MyoScan-Pro 400 - 1H'].iloc[i-4:]))
+        data['A:HR (1/2s avg)'].iloc[i] =  float(Ave(data['A: EKG HR (Smoothed)'].iloc[i-4:]))
+    
+    for i in range(5, len(data.index)):
+        data['D:Δfrown'].iloc[i] = data['D: EMG'].iloc[i] - data['D:frown (1/2s avg)'].iloc[i-1]
+        data['E: SCR'].iloc[i] = data['E: Skin Cond'].iloc[i] - data['E: SC (1/2s avg)'].iloc[i-1]
+        data['H:Δsmile'].iloc[i] = data['MyoScan-Pro 400 - 1H'].iloc[i] - data['H:Smile (1/2s avg)'].iloc[i-1]
+        data['A:ΔHR '].iloc[i] = data['A: EKG HR (Smoothed)'].iloc[i] - data['A:HR (1/2s avg)'].iloc[i-1]
+    
+def R_filter(result):
+    
+    return result
+
+def all_data(path):
+    txts = os.listdir(path)
+    writer = pd.ExcelWriter('C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\chiwenxiu.xlsx')
+    for txt in txts:
+        file = path + txt
+        data = pd.read_csv(file, sep=',', names=heading)
+    
+        Process_half(data)#1/2变化率相关处理
+    
+        result = Process(data)
+        del result['Δses']
+        result.to_excel(writer, sheet_name=txt[:-4])
+    
+    writer.save()
+
+def marked_data(path):
+    sheets = pd.ExcelFile(path).sheet_names
+    writer = pd.ExcelWriter('C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\Result.xlsx')
+    for name in sheets:
+        sheet = pd.read_excel(path, sheet_name=name, header=0, index_col=0)
+        if('错' in name or '疑' in name):
+            continue
+        else:
+            print(name)
+            index = sheet[sheet.iloc[:,-1]=='第二轮40张照片观看'].index
+            index = int(index[0])
+            sheet = sheet.loc[index:index+40].iloc[:,:-1]
+            col = list(sheet.columns)
+            col[-1] = 'num'
+            sheet.columns = col
+            
+            sheet.to_excel(writer, sheet_name=name, index=False)
+    writer.save()
+
+def to_ledalab(path):
+    txts = os.listdir(path)
+    for txt in txts:
+        file = path + txt
+        data = pd.read_csv(file, sep=',', names=heading)
+        
+        data['session'] = data['TT-AV Sync - 1B'].apply(lambda x:1 if x>0 else 0)
+        for i in data.index[1:]:
+            data['Δses'].at[i] = data['session'].at[i] - data['session'].at[i-1]
+        data['Δses'].iloc[0] = data['session'].iloc[0]
+        
+        cols = ['Time', 'E: Skin Cond', 'Δses']
+        data = data[cols[:]].copy()
+        data.to_csv('C:\\Users\\BEYONDER\\Desktop\\数据分析\\to_ledalab\\'+txt, index=False,
+                    header=False, sep='\t')
+
+def mm():
+    sheets = pd.ExcelFile('C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\Result(marked)ed.xlsx').sheet_names
+    writer = pd.ExcelWriter('C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\Extrema.xlsx')
+    for name in sheets:
+        sheet = pd.read_excel('C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\Result(marked)ed.xlsx',
+                              sheet_name=name, header=0, index_col=0)
+        if('错' in name or '疑' in name):
+            continue
+        else:
+            name = name[:-1]
+            data = pd.read_csv('C:\\Users\\BEYONDER\\Desktop\\数据分析\\室内分析尝试\\'+name+'.txt',
+                               sep=',', names=heading)
+            data['session'] = data['TT-AV Sync - 1B'].apply(lambda x:1 if x>0 else 0)
+            for i in data.index[1:]:
+                data['Δses'].at[i] = data['session'].at[i] - data['session'].at[i-1]
+            data['Δses'].iloc[0] = data['session'].iloc[0]
+            print(name)
+            index = sheet[sheet.iloc[:,-1]=='第二轮40张照片观看'].index
+            index = int(index[0])
+            columns = ['1max','2max', '3max','4max','5max','6max','7max',
+                           '1min','2min','3min','4min', '5min', '6min','7min']
+            extrema = pd.DataFrame(columns=columns)
+            count = 0
+            for i in range(index, index+80, 2):
+                start = np.sum(sheet['count'].loc[:i-1]) - 1
+                end = np.sum(sheet['count'].loc[:i]) - 1
+                part = data.loc[start:end].copy()
+                part = part[['Time', 'A: EKG HR (Smoothed)']]
+                
+                n = (len(part.index)-1)//16
+                item = pd.DataFrame(np.full((n+1,14),np.nan),columns=columns)
+                for j in range(n):
+                    item[str(j+1)+'max'] = np.max(part['A: EKG HR (Smoothed)'].iloc[j*16:j*16+16])
+                    item[str(j+1)+'min'] = np.min(part['A: EKG HR (Smoothed)'].iloc[j*16:j*16+16])
+                item[str(n+1)+'max'] = np.max(part['A: EKG HR (Smoothed)'].iloc[n*16:])
+                item[str(n+1)+'min'] = np.min(part['A: EKG HR (Smoothed)'].iloc[n*16:])
+                extrema = extrema.append(item).copy()
+                count = count + 1
+            extrema.to_excel(writer, sheet_name=name, index=False)
+    writer.save()        
+    
+    
+heading = list(pd.read_csv('C:\\Users\\BEYONDER\\Desktop\\数据分析\\chenshiyun\\chenshiyun w heading.txt',
+                      skiprows=6, sep=',', nrows=1)) + ['session', 'Δses']
+process = heading[:17] + heading[21:]
+half = ['D:frown (1/2s avg)', 'D:Δfrown', 'E: SC (1/2s avg)', 'E: SCR',
+     'H:Smile (1/2s avg)', 'H:Δsmile', 'A:HR (1/2s avg)', 'A:ΔHR ']
+heading = heading + half#1/2变化率
+
+#path = 'C:\\Users\\BEYONDER\\Desktop\\数据分析\\new\\'
+#path = 'C:\\Users\\BEYONDER\\Desktop\\数据分析\\results\\Result(marked)ed.xlsx'
+#path = 'C:\\Users\\BEYONDER\\Desktop\\数据分析\\室内分析尝试\\'
+path = 'C:\\Users\\BEYONDER\\Desktop\\数据分析\\chiwenxiu\\'
+
+all_data(path)
+#marked_data(path)
+#to_ledalab(path)
+#mm()
